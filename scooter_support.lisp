@@ -20,6 +20,19 @@
 (def cruise-max-speed 0.0)
 (def cruise-modes 3) ; bit 1 drive, 2 eco, 4 sport
 
+; Legal lock
+(def legal false)
+(def legal-speed 0.0) ; m/s
+(def legal-watt 0.0)
+(def legal-thr-high false)
+(def legal-blips 0)
+(def legal-done false) ; the gesture fired, wait for the brake to be released
+(def legal-stop-speed (/ 1.0 3.6))
+(def legal-brake 0.3)
+(def blip-on 1.0)   ; dash throttle volts, a blip rises past this
+(def blip-off 0.3)  ; and back below this
+(def blips-needed 2)
+
 ; Alarm parameters (foc-play-tone)
 (def alarm-tone true)
 (def alarm-speed-threshold 0.5) ; speed in km/h to trigger alarm
@@ -106,7 +119,7 @@
 
 @const-start
 
-(def settings-version 305i32)
+(def settings-version 306i32)
 (def button-safety-speed (/ 0.1 3.6)) ; disabling button above 0.1 km/h (due to safety reasons)
 (def min-adc-throttle 0.1) ; throttle and brake needed to reach the secret modes
 (def min-adc-brake 0.1)
@@ -161,6 +174,9 @@
     (cruise-min-speed-kmh  . (44 f))
     (cruise-max-speed-kmh  . (45 f))
     (cruise-modes          . (46 i))
+    ; Legal lock (offsets 47-48, do not renumber 0-46)
+    (legal-speed-kmh       . (47 f))
+    (legal-watt            . (48 f))
 ))
 
 (defun read-setting (name)
@@ -244,6 +260,9 @@
         (write-setting 'cruise-min-speed-kmh 5.0)
         (write-setting 'cruise-max-speed-kmh 25.0)
         (write-setting 'cruise-modes 3)
+        ; Legal lock defaults
+        (write-setting 'legal-speed-kmh 20.0)
+        (write-setting 'legal-watt 500.0)
     }
 )
 
@@ -298,6 +317,8 @@
         (set 'cruise-min-speed (/ (read-setting 'cruise-min-speed-kmh) 3.6))
         (set 'cruise-max-speed (/ (read-setting 'cruise-max-speed-kmh) 3.6))
         (set 'cruise-modes (read-setting 'cruise-modes))
+        (set 'legal-speed (/ (read-setting 'legal-speed-kmh) 3.6))
+        (set 'legal-watt (read-setting 'legal-watt))
 
         (var m (read-setting 'model))
         (if (not (valid-model m)) {
@@ -408,6 +429,14 @@
     }
 )
 
+; Legal lock settings
+(defun save-legal-settings (speed-kmh watt)
+    {
+        (write-setting 'legal-speed-kmh speed-kmh)
+        (write-setting 'legal-watt watt)
+    }
+)
+
 ; UI restarts lisp after "model-ok" so the new model takes effect
 (defun save-model (m)
     {
@@ -499,6 +528,11 @@
             (str-from-n (read-setting 'cruise-max-speed-kmh) "%.1f ")
             (str-from-n (read-setting 'cruise-modes) "%d")
         ))
+        (send-data (str-merge
+            "legal "
+            (str-from-n (read-setting 'legal-speed-kmh) "%.1f ")
+            (str-from-n (read-setting 'legal-watt) "%.0f")
+        ))
     }
 )
 
@@ -521,6 +555,8 @@
         (if (> throttle 3.3) (setf throttle 3.3))
         (if (< brake 0) (setf brake 0))
         (if (> brake 3.3) (setf brake 3.3))
+
+        (legal-gesture throttle brake)
 
         (if cruise-active
           {
@@ -869,10 +905,75 @@
     )
 )
 
+(defun clamp-legal(value limit)
+    (if (and legal (> value limit))
+        limit
+        value
+    )
+)
+
+; The mode owns the limits, the lock only clamps them, so a mode change cannot undo the lock
+(defun legal-toggle ()
+    {
+        (if legal
+            {
+                (set 'legal false)
+                (apply-mode)
+                (play-tone 0 2000 alarm-voltage)
+                (print "Legal lock OFF")
+            }
+            {
+                (set 'legal true)
+                (apply-mode)
+                (play-tone 0 4000 alarm-voltage)
+                (sleep 0.15)
+                (play-tone 0 4000 alarm-voltage)
+                (print (str-from-n (* legal-speed 3.6) "Legal lock ON - %.0f km/h"))
+            }
+        )
+    }
+)
+
+(defun legal-gesture(throttle brake)
+    {
+        (if (and (< (get-speed) legal-stop-speed) (> brake legal-brake))
+            (if legal-done
+                nil
+                {
+                    (if (> throttle blip-on)
+                        (if (not legal-thr-high)
+                            {
+                                (set 'legal-thr-high true)
+                                (set 'legal-blips (+ legal-blips 1))
+                            }
+                        )
+                        (if (< throttle blip-off)
+                            (set 'legal-thr-high false)
+                        )
+                    )
+                    (if (>= legal-blips blips-needed)
+                        {
+                            (legal-toggle)
+                            (set 'legal-blips 0)
+                            (set 'legal-thr-high false)
+                            (set 'legal-done true)
+                        }
+                    )
+                }
+            )
+            { ; the brake is released, ready for the next gesture
+                (set 'legal-done false)
+                (set 'legal-thr-high false)
+                (set 'legal-blips 0)
+            }
+        )
+    }
+)
+
 (defun configure-speed(speed watts current fw)
     {
-        (set-param 'max-speed speed)
-        (set-param 'l-watt-max watts)
+        (set-param 'max-speed (clamp-legal speed legal-speed))
+        (set-param 'l-watt-max (clamp-legal watts legal-watt))
         (set-param 'l-current-max-scale current)
         (set-param 'foc-fw-current-max fw)
     }

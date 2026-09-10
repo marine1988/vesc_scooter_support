@@ -57,6 +57,7 @@ After changing the model, save in the UI - the script restarts on its own with t
 - [x] Shutdown support (Long press to turn off)
 - [x] Motor start speed
 - [x] Cruise control (hold the throttle)
+- [x] Legal lock (stopped, brake held, two throttle blips)
 - [x] Idle display (battery, motor and controller temperature, voltage, trip or top speed)
 - [x] Temperature notification icon (configurable threshold)
 - [x] mph/km display toggle

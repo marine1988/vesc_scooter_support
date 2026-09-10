@@ -1,3 +1,6 @@
+#
+CI: builds the package on every push, and attaches it to a published
+release as vesc_scooter_support_v<version>.vescpkg.
 name: Build VESC Scooter Support Package
 
 on:

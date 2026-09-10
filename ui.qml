@@ -69,13 +69,6 @@ Item {
         }
     }
 
-    function setInt(field, value) {
-        var number = Number.parseInt(value)
-        if (Number.isFinite(number)) {
-            field.text = number.toString()
-        }
-    }
-
     // Speeds are always stored in km/h, the fields only show mph
     readonly property real mphFactor: 0.621371
 
@@ -99,12 +92,11 @@ Item {
         return speedToKmh(field, useMph.checked).toFixed(1)
     }
 
-    function readInt(field) {
-        var number = Number.parseInt(field.text)
-        if (!Number.isFinite(number)) {
-            number = 0
-        }
-        return number.toFixed(0)
+    // Mode bits match the speed modes in the lisp script
+    function cruiseModeMask() {
+        return (cruiseModeDrive.checked ? 1 : 0)
+            + (cruiseModeEco.checked ? 2 : 0)
+            + (cruiseModeSport.checked ? 4 : 0)
     }
 
     function setSpeed(field, value) {
@@ -117,7 +109,8 @@ Item {
 
     function convertSpeedFields(toMph) {
         var fields = [minSpeed, ecoSpeed, driveSpeed, sportSpeed, secretMinSpeed,
-            secretEcoSpeed, secretDriveSpeed, secretSportSpeed, alarmSpeedThreshold]
+            secretEcoSpeed, secretDriveSpeed, secretSportSpeed, alarmSpeedThreshold,
+            cruiseMinSpeed, cruiseMaxSpeed]
         for (var i = 0; i < fields.length; i++) {
             setSpeed(fields[i], speedToKmh(fields[i], !toMph))
         }
@@ -186,7 +179,9 @@ Item {
             + boolAtom(cruiseEnabled)
             + " " + readReal(cruiseHoldSec, 1)
             + " " + readReal(cruiseDeadband, 2)
-            + " " + readInt(cruiseMinRpm)
+            + " " + readSpeed(cruiseMinSpeed)
+            + " " + readSpeed(cruiseMaxSpeed)
+            + " " + cruiseModeMask()
             + ")")
 
         // A model change restarts lisp, which loads and applies everything on its own
@@ -300,7 +295,15 @@ Item {
             cruiseEnabled.checked = parseBoolToken(parts[1])
             setReal(cruiseHoldSec, parts[2], 1)
             setReal(cruiseDeadband, parts[3], 2)
-            setInt(cruiseMinRpm, parts[4])
+            setSpeed(cruiseMinSpeed, parts[4])
+            setSpeed(cruiseMaxSpeed, parts[5])
+            var mask = Number.parseInt(parts[6])
+            if (!Number.isFinite(mask)) {
+                mask = 0
+            }
+            cruiseModeEco.checked = (mask & 2) !== 0
+            cruiseModeDrive.checked = (mask & 1) !== 0
+            cruiseModeSport.checked = (mask & 4) !== 0
         }
 
         loadedLines |= 1 << index
@@ -633,8 +636,21 @@ Item {
                             Label { text: "Deadband" }
                             TextField { id: cruiseDeadband; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0.0; top: 0.5; decimals: 2 } }
 
-                            Label { text: "Min RPM" }
-                            TextField { id: cruiseMinRpm; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0.0; top: 1000; decimals: 0 } }
+                            Label { text: "Min Speed (" + root.speedUnit + ")" }
+                            TextField { id: cruiseMinSpeed; property real kmh: 0; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0.0; top: 150.0; decimals: 1 } }
+
+                            Label { text: "Max Speed (" + root.speedUnit + ")" }
+                            TextField { id: cruiseMaxSpeed; property real kmh: 0; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0.0; top: 150.0; decimals: 1 } }
+
+                            Label { text: "Allowed Modes" }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 8
+
+                                CheckBox { id: cruiseModeEco; text: "Eco" }
+                                CheckBox { id: cruiseModeDrive; text: "Drive" }
+                                CheckBox { id: cruiseModeSport; text: "Sport" }
+                            }
                         }
                     }
                 }

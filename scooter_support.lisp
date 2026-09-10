@@ -16,7 +16,9 @@
 (def cruise-enabled true)
 (def cruise-hold-sec 5.0)
 (def cruise-deadband 0.02)
-(def cruise-min-rpm 200)
+(def cruise-min-speed 0.0)
+(def cruise-max-speed 0.0)
+(def cruise-modes 3) ; bit 1 drive, 2 eco, 4 sport
 
 ; Alarm parameters (foc-play-tone)
 (def alarm-tone true)
@@ -104,7 +106,7 @@
 
 @const-start
 
-(def settings-version 304i32)
+(def settings-version 305i32)
 (def button-safety-speed (/ 0.1 3.6)) ; disabling button above 0.1 km/h (due to safety reasons)
 (def min-adc-throttle 0.1) ; throttle and brake needed to reach the secret modes
 (def min-adc-brake 0.1)
@@ -152,11 +154,13 @@
     (secret-sport-watts    . (35 f))
     (secret-sport-fw       . (36 f))
     (model                 . (37 i))
-    ; Cruise control (offsets 41-44, do not renumber existing 0-40)
+    ; Cruise control (offsets 41-46, do not renumber existing 0-40)
     (cruise-enabled        . (41 b))
     (cruise-hold-sec       . (42 f))
     (cruise-deadband       . (43 f))
-    (cruise-min-rpm        . (44 i))
+    (cruise-min-speed-kmh  . (44 f))
+    (cruise-max-speed-kmh  . (45 f))
+    (cruise-modes          . (46 i))
 ))
 
 (defun read-setting (name)
@@ -237,7 +241,9 @@
         (write-setting 'cruise-enabled true)
         (write-setting 'cruise-hold-sec 5.0)
         (write-setting 'cruise-deadband 0.02)
-        (write-setting 'cruise-min-rpm 200)
+        (write-setting 'cruise-min-speed-kmh 5.0)
+        (write-setting 'cruise-max-speed-kmh 25.0)
+        (write-setting 'cruise-modes 3)
     }
 )
 
@@ -289,7 +295,9 @@
         (set 'cruise-enabled (read-setting 'cruise-enabled))
         (set 'cruise-hold-sec (read-setting 'cruise-hold-sec))
         (set 'cruise-deadband (read-setting 'cruise-deadband))
-        (set 'cruise-min-rpm (read-setting 'cruise-min-rpm))
+        (set 'cruise-min-speed (/ (read-setting 'cruise-min-speed-kmh) 3.6))
+        (set 'cruise-max-speed (/ (read-setting 'cruise-max-speed-kmh) 3.6))
+        (set 'cruise-modes (read-setting 'cruise-modes))
 
         (var m (read-setting 'model))
         (if (not (valid-model m)) {
@@ -389,12 +397,14 @@
 )
 
 ; Cruise control settings
-(defun save-cruise-settings (enabled hold-sec deadband min-rpm)
+(defun save-cruise-settings (enabled hold-sec deadband min-speed-kmh max-speed-kmh modes)
     {
         (write-setting 'cruise-enabled enabled)
         (write-setting 'cruise-hold-sec hold-sec)
         (write-setting 'cruise-deadband deadband)
-        (write-setting 'cruise-min-rpm min-rpm)
+        (write-setting 'cruise-min-speed-kmh min-speed-kmh)
+        (write-setting 'cruise-max-speed-kmh max-speed-kmh)
+        (write-setting 'cruise-modes modes)
     }
 )
 
@@ -485,7 +495,9 @@
             (if (read-setting 'cruise-enabled) "true " "false ")
             (str-from-n (read-setting 'cruise-hold-sec) "%.1f ")
             (str-from-n (read-setting 'cruise-deadband) "%.2f ")
-            (str-from-n (read-setting 'cruise-min-rpm) "%d")
+            (str-from-n (read-setting 'cruise-min-speed-kmh) "%.1f ")
+            (str-from-n (read-setting 'cruise-max-speed-kmh) "%.1f ")
+            (str-from-n (read-setting 'cruise-modes) "%d")
         ))
     }
 )
@@ -513,7 +525,9 @@
         (if cruise-active
           {
             (var thr-delta (abs (- throttle cruise-thr-ref)))
-            (if (or (> brake 0.3) (> thr-delta 0.05))
+            (if (or (> brake 0.3)
+                    (> thr-delta 0.05)
+                    (= 0 (bitwise-and cruise-modes speedmode)))
               {
                 (set 'cruise-active false)
                 (app-adc-override 0 throttle)
@@ -528,16 +542,17 @@
             (app-adc-override 1 brake)
 
             (if (and cruise-enabled
+                     (!= 0 (bitwise-and cruise-modes speedmode))
                      (> throttle 0.1) (< throttle 3.0)
                      (< (abs (- throttle cruise-thr-ref)) cruise-deadband))
               {
                 (var elapsed (/ (- (systime) cruise-start-time) 1000.0))
                 (if (>= elapsed cruise-hold-sec)
                   {
-                    (var rpm (abs (get-rpm)))
-                    (if (> rpm cruise-min-rpm)
+                    (var spd (get-speed))
+                    (if (and (>= spd cruise-min-speed) (<= spd cruise-max-speed))
                       {
-                        (set 'cruise-rpm rpm)
+                        (set 'cruise-rpm (abs (get-rpm)))
                         (set 'cruise-active true)
                         (print (str-from-n cruise-rpm "Cruise ON — RPM: %.0f"))
                       }

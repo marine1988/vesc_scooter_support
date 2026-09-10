@@ -130,7 +130,7 @@ jobs:
         with:
           name: vesc-scooter-support-${{ github.sha }}
           if-no-files-found: error
-          path: vesc_scooter_support.vescpkg
+          path: vesc_scooter_support_v*.vescpkg
 
       - name: Attach package to release
         if: github.event_name == 'release'
@@ -138,4 +138,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ github.event.release.tag_name }}" \
-            vesc_scooter_support.vescpkg --clobber
+            vesc_scooter_support_v*.vescpkg --clobber

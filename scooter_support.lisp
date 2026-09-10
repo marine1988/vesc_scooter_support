@@ -20,18 +20,14 @@
 (def cruise-max-speed 0.0)
 (def cruise-modes 3) ; bit 1 drive, 2 eco, 4 sport
 
-; Legal lock
-(def legal false)
-(def legal-speed 0.0) ; m/s
-(def legal-watt 0.0)
-(def legal-thr-high false)
-(def legal-blips 0)
-(def legal-done false) ; the gesture fired, wait for the brake to be released
-(def legal-stop-speed (/ 1.0 3.6))
-(def legal-brake 0.3)
-(def blip-on 1.0)   ; dash throttle volts, a blip rises past this
-(def blip-off 0.3)  ; and back below this
-(def blips-needed 2)
+; Cruise control beeps
+(def ticks-per-ms 10) ; systime runs at 10 kHz
+(def cruise-tone-end 0) ; a running tone stops here
+(def cruise-tone-next 0) ; the next beep starts here
+(def cruise-tone-left 0) ; beeps left in the sequence
+(def cruise-tone-on 0) ; length of each beep, in ticks
+(def cruise-tone-gap 120) ; silence between beeps, in ms
+(def cruise-tone-volt 20)
 
 ; Alarm parameters (foc-play-tone)
 (def alarm-tone true)
@@ -110,6 +106,7 @@
 (def cruise-thr-ref 0.0)
 (def cruise-start-time 0)
 (def cruise-rpm 0)
+(def cruise-over-time 0) ; when the speed first went over the maximum
 
 ; sound feedback
 (def feedback 0)
@@ -260,9 +257,6 @@
         (write-setting 'cruise-min-speed-kmh 5.0)
         (write-setting 'cruise-max-speed-kmh 25.0)
         (write-setting 'cruise-modes 3)
-        ; Legal lock defaults
-        (write-setting 'legal-speed-kmh 20.0)
-        (write-setting 'legal-watt 500.0)
     }
 )
 
@@ -317,8 +311,6 @@
         (set 'cruise-min-speed (/ (read-setting 'cruise-min-speed-kmh) 3.6))
         (set 'cruise-max-speed (/ (read-setting 'cruise-max-speed-kmh) 3.6))
         (set 'cruise-modes (read-setting 'cruise-modes))
-        (set 'legal-speed (/ (read-setting 'legal-speed-kmh) 3.6))
-        (set 'legal-watt (read-setting 'legal-watt))
 
         (var m (read-setting 'model))
         (if (not (valid-model m)) {
@@ -429,14 +421,6 @@
     }
 )
 
-; Legal lock settings
-(defun save-legal-settings (speed-kmh watt)
-    {
-        (write-setting 'legal-speed-kmh speed-kmh)
-        (write-setting 'legal-watt watt)
-    }
-)
-
 ; UI restarts lisp after "model-ok" so the new model takes effect
 (defun save-model (m)
     {
@@ -528,11 +512,6 @@
             (str-from-n (read-setting 'cruise-max-speed-kmh) "%.1f ")
             (str-from-n (read-setting 'cruise-modes) "%d")
         ))
-        (send-data (str-merge
-            "legal "
-            (str-from-n (read-setting 'legal-speed-kmh) "%.1f ")
-            (str-from-n (read-setting 'legal-watt) "%.0f")
-        ))
     }
 )
 
@@ -556,21 +535,40 @@
         (if (< brake 0) (setf brake 0))
         (if (> brake 3.3) (setf brake 3.3))
 
-        (legal-gesture throttle brake)
-
         (if cruise-active
           {
             (var thr-delta (abs (- throttle cruise-thr-ref)))
-            (if (or (> brake 0.3)
-                    (> thr-delta 0.05)
-                    (= 0 (bitwise-and cruise-modes speedmode)))
-              {
-                (set 'cruise-active false)
-                (app-adc-override 0 throttle)
-                (app-adc-override 1 brake)
-                (print "Cruise OFF")
-              }
-              (set-rpm cruise-rpm)
+            (var spd (get-speed))
+            (cond
+              ; the rider took over
+              ((> brake 0.3)
+                (cruise-off "brake" throttle brake)
+              )
+              ((> thr-delta cruise-deadband)
+                (cruise-off "throttle" throttle brake)
+              )
+              ((= 0 (bitwise-and cruise-modes speedmode))
+                (cruise-off "mode" throttle brake)
+              )
+              ; the hold is losing the fight, a hill or a drag
+              ((< (abs (get-rpm)) (* cruise-rpm 0.6))
+                (cruise-off "stall" throttle brake)
+              )
+              ; downhill, the motor cannot hold it back
+              ((> spd cruise-max-speed)
+                (if (= cruise-over-time 0)
+                  (set 'cruise-over-time (systime))
+                  (if (> (secs-since cruise-over-time) 3)
+                    (cruise-off "over speed" throttle brake)
+                  )
+                )
+              )
+              (t
+                {
+                  (set 'cruise-over-time 0)
+                  (set-rpm cruise-rpm)
+                }
+              )
             )
           }
           {
@@ -579,17 +577,19 @@
 
             (if (and cruise-enabled
                      (!= 0 (bitwise-and cruise-modes speedmode))
+                     (< brake 0.3) ; never arm with the brake on
                      (> throttle 0.1) (< throttle 3.0)
                      (< (abs (- throttle cruise-thr-ref)) cruise-deadband))
               {
-                (var elapsed (/ (- (systime) cruise-start-time) 1000.0))
-                (if (>= elapsed cruise-hold-sec)
+                (if (>= (secs-since cruise-start-time) cruise-hold-sec)
                   {
                     (var spd (get-speed))
                     (if (and (>= spd cruise-min-speed) (<= spd cruise-max-speed))
                       {
-                        (set 'cruise-rpm (abs (get-rpm)))
+                        (set 'cruise-rpm (* 1.0 (abs (get-rpm)))) ; float, the log prints it with %.0f
                         (set 'cruise-active true)
+                        (set 'cruise-over-time 0)
+                        (cruise-beep 500 1) ; one long beep
                         (print (str-from-n cruise-rpm "Cruise ON — RPM: %.0f"))
                       }
                     )
@@ -603,6 +603,8 @@
             )
           }
         )
+
+        (cruise-tone-service)
       }
     )
   }
@@ -905,66 +907,50 @@
     )
 )
 
-(defun clamp-legal(value limit)
-    (if (and legal (> value limit))
-        limit
-        value
-    )
-)
-
-; The mode owns the limits, the lock only clamps them, so a mode change cannot undo the lock
-(defun legal-toggle ()
+(defun cruise-off(reason throttle brake)
     {
-        (if legal
-            {
-                (set 'legal false)
-                (apply-mode)
-                (play-tone 0 2000 alarm-voltage)
-                (print "Legal lock OFF")
-            }
-            {
-                (set 'legal true)
-                (apply-mode)
-                (play-tone 0 4000 alarm-voltage)
-                (sleep 0.15)
-                (play-tone 0 4000 alarm-voltage)
-                (print (str-from-n (* legal-speed 3.6) "Legal lock ON - %.0f km/h"))
-            }
-        )
+        (set 'cruise-active false)
+        (set 'cruise-over-time 0)
+        ; a fresh hold is needed before it can take over again
+        (set 'cruise-start-time (systime))
+        (app-adc-override 0 throttle)
+        (app-adc-override 1 brake)
+        (cruise-beep 120 2) ; two short beeps
+        (print (str-merge "Cruise OFF: " reason))
     }
 )
 
-(defun legal-gesture(throttle brake)
+; One beep of on-ms, repeated count times, without ever holding up a frame
+(defun cruise-beep(on-ms count)
     {
-        (if (and (< (get-speed) legal-stop-speed) (> brake legal-brake))
-            (if legal-done
-                nil
-                {
-                    (if (> throttle blip-on)
-                        (if (not legal-thr-high)
-                            {
-                                (set 'legal-thr-high true)
-                                (set 'legal-blips (+ legal-blips 1))
-                            }
-                        )
-                        (if (< throttle blip-off)
-                            (set 'legal-thr-high false)
-                        )
-                    )
-                    (if (>= legal-blips blips-needed)
-                        {
-                            (legal-toggle)
-                            (set 'legal-blips 0)
-                            (set 'legal-thr-high false)
-                            (set 'legal-done true)
-                        }
-                    )
-                }
-            )
-            { ; the brake is released, ready for the next gesture
-                (set 'legal-done false)
-                (set 'legal-thr-high false)
-                (set 'legal-blips 0)
+        (set 'cruise-tone-on (* on-ms ticks-per-ms))
+        (set 'cruise-tone-left count)
+        (set 'cruise-tone-next (systime))
+    }
+)
+
+(defun cruise-tone-service()
+    {
+        (if (> alarm 0) ; the alarm owns the tone while it sounds
+            {
+                (set 'cruise-tone-left 0)
+                (set 'cruise-tone-end 0)
+            }
+            {
+                (if (and (> cruise-tone-end 0) (>= (systime) cruise-tone-end))
+                    {
+                        (stop-tone)
+                        (set 'cruise-tone-end 0)
+                    }
+                )
+                (if (and (> cruise-tone-left 0) (>= (systime) cruise-tone-next))
+                    {
+                        (play-tone 0 4000 cruise-tone-volt)
+                        (set 'cruise-tone-left (- cruise-tone-left 1))
+                        (set 'cruise-tone-end (+ (systime) cruise-tone-on))
+                        (set 'cruise-tone-next (+ (systime) cruise-tone-on (* cruise-tone-gap ticks-per-ms)))
+                    }
+                )
             }
         )
     }
@@ -972,8 +958,8 @@
 
 (defun configure-speed(speed watts current fw)
     {
-        (set-param 'max-speed (clamp-legal speed legal-speed))
-        (set-param 'l-watt-max (clamp-legal watts legal-watt))
+        (set-param 'max-speed speed)
+        (set-param 'l-watt-max watts)
         (set-param 'l-current-max-scale current)
         (set-param 'foc-fw-current-max fw)
     }

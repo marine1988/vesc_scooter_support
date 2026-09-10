@@ -27,7 +27,7 @@ Item {
     ]
 
     // Editing is blocked until every settings line arrived, empty fields would save as zero
-    readonly property var settingsLines: ["model", "general", "temps", "modes", "secret", "alarm", "cruise", "legal"]
+    readonly property var settingsLines: ["model", "general", "temps", "modes", "secret", "alarm", "cruise"]
     property int loadedLines: 0
     readonly property bool settingsLoaded: loadedLines === (1 << settingsLines.length) - 1
 
@@ -110,7 +110,7 @@ Item {
     function convertSpeedFields(toMph) {
         var fields = [minSpeed, ecoSpeed, driveSpeed, sportSpeed, secretMinSpeed,
             secretEcoSpeed, secretDriveSpeed, secretSportSpeed, alarmSpeedThreshold,
-            cruiseMinSpeed, cruiseMaxSpeed, legalSpeed]
+            cruiseMinSpeed, cruiseMaxSpeed]
         for (var i = 0; i < fields.length; i++) {
             setSpeed(fields[i], speedToKmh(fields[i], !toMph))
         }
@@ -182,11 +182,6 @@ Item {
             + " " + readSpeed(cruiseMinSpeed)
             + " " + readSpeed(cruiseMaxSpeed)
             + " " + cruiseModeMask()
-            + ")")
-
-        queue.push("(save-legal-settings "
-            + readSpeed(legalSpeed)
-            + " " + readReal(legalWatt, 0)
             + ")")
 
         // A model change restarts lisp, which loads and applies everything on its own
@@ -309,9 +304,6 @@ Item {
             cruiseModeEco.checked = (mask & 2) !== 0
             cruiseModeDrive.checked = (mask & 1) !== 0
             cruiseModeSport.checked = (mask & 4) !== 0
-        } else if (parts[0] === "legal") {
-            setReal(legalSpeed, parts[1], 1)
-            setReal(legalWatt, parts[2], 0)
         }
 
         loadedLines |= 1 << index
@@ -659,14 +651,6 @@ Item {
                                 CheckBox { id: cruiseModeDrive; text: "Drive" }
                                 CheckBox { id: cruiseModeSport; text: "Sport" }
                             }
-
-                            Label { text: "Legal Lock"; Layout.columnSpan: 2; font.bold: true }
-
-                            Label { text: "Speed (" + root.speedUnit + ")" }
-                            TextField { id: legalSpeed; property real kmh: 0; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0.0; top: 150.0; decimals: 1 } }
-
-                            Label { text: "Power (W)" }
-                            TextField { id: legalWatt; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0.0; top: 20000.0; decimals: 0 } }
                         }
                     }
                 }

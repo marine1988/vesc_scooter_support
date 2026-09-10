@@ -27,7 +27,7 @@ Item {
     ]
 
     // Editing is blocked until every settings line arrived, empty fields would save as zero
-    readonly property var settingsLines: ["model", "general", "temps", "modes", "secret", "alarm"]
+    readonly property var settingsLines: ["model", "general", "temps", "modes", "secret", "alarm", "cruise"]
     property int loadedLines: 0
     readonly property bool settingsLoaded: loadedLines === (1 << settingsLines.length) - 1
 
@@ -69,6 +69,13 @@ Item {
         }
     }
 
+    function setInt(field, value) {
+        var number = Number.parseInt(value)
+        if (Number.isFinite(number)) {
+            field.text = number.toString()
+        }
+    }
+
     // Speeds are always stored in km/h, the fields only show mph
     readonly property real mphFactor: 0.621371
 
@@ -90,6 +97,14 @@ Item {
 
     function readSpeed(field) {
         return speedToKmh(field, useMph.checked).toFixed(1)
+    }
+
+    function readInt(field) {
+        var number = Number.parseInt(field.text)
+        if (!Number.isFinite(number)) {
+            number = 0
+        }
+        return number.toFixed(0)
     }
 
     function setSpeed(field, value) {
@@ -166,6 +181,12 @@ Item {
             + " " + readSpeed(alarmSpeedThreshold)
             + " " + readReal(alarmGyroThreshold, 1)
             + " " + readReal(alarmVoltage, 1)
+            + ")")
+        queue.push("(save-cruise-settings "
+            + boolAtom(cruiseEnabled)
+            + " " + readReal(cruiseHoldSec, 1)
+            + " " + readReal(cruiseDeadband, 2)
+            + " " + readInt(cruiseMinRpm)
             + ")")
 
         // A model change restarts lisp, which loads and applies everything on its own
@@ -275,6 +296,11 @@ Item {
             setSpeed(alarmSpeedThreshold, parts[2])
             setReal(alarmGyroThreshold, parts[3], 1)
             setReal(alarmVoltage, parts[4], 1)
+        } else if (parts[0] === "cruise") {
+            cruiseEnabled.checked = parseBoolToken(parts[1])
+            setReal(cruiseHoldSec, parts[2], 1)
+            setReal(cruiseDeadband, parts[3], 2)
+            setInt(cruiseMinRpm, parts[4])
         }
 
         loadedLines |= 1 << index
@@ -328,7 +354,7 @@ Item {
             clip: true
             enabled: settingsLoaded
 
-            property int buttons: 4
+            property int buttons: 5
             property int buttonWidth: 90
 
             TabButton {
@@ -345,6 +371,10 @@ Item {
             }
             TabButton {
                 text: "Alarm"
+                width: Math.max(tabBar.buttonWidth, tabBar.width / tabBar.buttons)
+            }
+            TabButton {
+                text: "Cruise"
                 width: Math.max(tabBar.buttonWidth, tabBar.width / tabBar.buttons)
             }
         }
@@ -568,6 +598,44 @@ Item {
 
                         Label { text: "Volume (V)" }
                         TextField { id: alarmVoltage; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0.0; top: 100.0; decimals: 1 } }
+                    }
+                }
+            }
+
+            Page {
+                enabled: !isSlave
+
+                ScrollView {
+                    anchors.fill: parent
+                    contentWidth: availableWidth
+                    clip: true
+
+                    ColumnLayout {
+                        width: parent.width
+                        spacing: 4
+
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            rowSpacing: 4
+                            columnSpacing: 8
+                            enabled: !isSlave
+
+                            CheckBox {
+                                id: cruiseEnabled
+                                Layout.columnSpan: 2
+                                text: "Cruise Control"
+                            }
+
+                            Label { text: "Hold Time (s)" }
+                            TextField { id: cruiseHoldSec; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0.0; top: 10.0; decimals: 1 } }
+
+                            Label { text: "Deadband" }
+                            TextField { id: cruiseDeadband; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0.0; top: 0.5; decimals: 2 } }
+
+                            Label { text: "Min RPM" }
+                            TextField { id: cruiseMinRpm; Layout.fillWidth: true; validator: DoubleValidator { bottom: 0.0; top: 1000; decimals: 0 } }
+                        }
                     }
                 }
             }

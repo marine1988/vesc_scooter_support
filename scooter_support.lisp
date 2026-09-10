@@ -12,6 +12,12 @@
 (def temp-warning-motor 100) ; temperature warning for motor in degree celsius
 (def temp-warning-fet 80) ; temperature warning for fet in degree celsius
 
+; Cruise control
+(def cruise-enabled true)
+(def cruise-hold-sec 5.0)
+(def cruise-deadband 0.02)
+(def cruise-min-rpm 200)
+
 ; Alarm parameters (foc-play-tone)
 (def alarm-tone true)
 (def alarm-speed-threshold 0.5) ; speed in km/h to trigger alarm
@@ -84,6 +90,12 @@
 (def alarm 0)
 (def alarm-time (systime))
 
+; cruise state
+(def cruise-active false)
+(def cruise-thr-ref 0.0)
+(def cruise-start-time 0)
+(def cruise-rpm 0)
+
 ; sound feedback
 (def feedback 0)
 
@@ -140,6 +152,11 @@
     (secret-sport-watts    . (35 f))
     (secret-sport-fw       . (36 f))
     (model                 . (37 i))
+    ; Cruise control (offsets 41-44, do not renumber existing 0-40)
+    (cruise-enabled        . (41 b))
+    (cruise-hold-sec       . (42 f))
+    (cruise-deadband       . (43 f))
+    (cruise-min-rpm        . (44 i))
 ))
 
 (defun read-setting (name)
@@ -216,6 +233,11 @@
         (write-setting 'secret-sport-fw 10.0)
         (write-setting 'model (if (valid-model cur-model) cur-model 0))
         (write-setting 'ver-code settings-version)
+        ; Cruise control defaults
+        (write-setting 'cruise-enabled true)
+        (write-setting 'cruise-hold-sec 5.0)
+        (write-setting 'cruise-deadband 0.02)
+        (write-setting 'cruise-min-rpm 200)
     }
 )
 
@@ -263,6 +285,11 @@
         (set 'secret-sport-current (read-setting 'secret-sport-current))
         (set 'secret-sport-watts (read-setting 'secret-sport-watts))
         (set 'secret-sport-fw (read-setting 'secret-sport-fw))
+
+        (set 'cruise-enabled (read-setting 'cruise-enabled))
+        (set 'cruise-hold-sec (read-setting 'cruise-hold-sec))
+        (set 'cruise-deadband (read-setting 'cruise-deadband))
+        (set 'cruise-min-rpm (read-setting 'cruise-min-rpm))
 
         (var m (read-setting 'model))
         (if (not (valid-model m)) {
@@ -361,6 +388,16 @@
     }
 )
 
+; Cruise control settings
+(defun save-cruise-settings (enabled hold-sec deadband min-rpm)
+    {
+        (write-setting 'cruise-enabled enabled)
+        (write-setting 'cruise-hold-sec hold-sec)
+        (write-setting 'cruise-deadband deadband)
+        (write-setting 'cruise-min-rpm min-rpm)
+    }
+)
+
 ; UI restarts lisp after "model-ok" so the new model takes effect
 (defun save-model (m)
     {
@@ -443,6 +480,13 @@
             (str-from-n (read-setting 'alarm-gyro-threshold) "%.1f ")
             (str-from-n (read-setting 'alarm-voltage) "%.1f")
         ))
+        (send-data (str-merge
+            "cruise "
+            (if (read-setting 'cruise-enabled) "true " "false ")
+            (str-from-n (read-setting 'cruise-hold-sec) "%.1f ")
+            (str-from-n (read-setting 'cruise-deadband) "%.2f ")
+            (str-from-n (read-setting 'cruise-min-rpm) "%d")
+        ))
     }
 )
 
@@ -457,25 +501,60 @@
 )))
 
 (defun adc-input(buffer) ; Frame 0x65
-    {
-        (let ((throttle (/(bufget-u8 uart-buf thr-idx) 77.2)) ; 255/3.3 = 77.2
-            (brake (/(bufget-u8 uart-buf brk-idx) 77.2)))
-            {
-                (if (< throttle 0)
-                    (setf throttle 0))
-                (if (> throttle 3.3)
-                    (setf throttle 3.3))
-                (if (< brake 0)
-                    (setf brake 0))
-                (if (> brake 3.3)
-                    (setf brake 3.3))
+  {
+    (let ((throttle (/(bufget-u8 uart-buf thr-idx) 77.2))
+        (brake (/(bufget-u8 uart-buf brk-idx) 77.2)))
+      {
+        (if (< throttle 0) (setf throttle 0))
+        (if (> throttle 3.3) (setf throttle 3.3))
+        (if (< brake 0) (setf brake 0))
+        (if (> brake 3.3) (setf brake 3.3))
 
-                ; Pass through throttle and brake to VESC
+        (if cruise-active
+          {
+            (var thr-delta (abs (- throttle cruise-thr-ref)))
+            (if (or (> brake 0.3) (> thr-delta 0.05))
+              {
+                (set 'cruise-active false)
                 (app-adc-override 0 throttle)
                 (app-adc-override 1 brake)
-            }
+                (print "Cruise OFF")
+              }
+              (set-rpm cruise-rpm)
+            )
+          }
+          {
+            (app-adc-override 0 throttle)
+            (app-adc-override 1 brake)
+
+            (if (and cruise-enabled
+                     (> throttle 0.1) (< throttle 3.0)
+                     (< (abs (- throttle cruise-thr-ref)) cruise-deadband))
+              {
+                (var elapsed (/ (- (systime) cruise-start-time) 1000.0))
+                (if (>= elapsed cruise-hold-sec)
+                  {
+                    (var rpm (abs (get-rpm)))
+                    (if (> rpm cruise-min-rpm)
+                      {
+                        (set 'cruise-rpm rpm)
+                        (set 'cruise-active true)
+                        (print (str-from-n cruise-rpm "Cruise ON — RPM: %.0f"))
+                      }
+                    )
+                  }
+                )
+              }
+              {
+                (set 'cruise-thr-ref throttle)
+                (set 'cruise-start-time (systime))
+              }
+            )
+          }
         )
-    }
+      }
+    )
+  }
 )
 
 (defun handle-features()

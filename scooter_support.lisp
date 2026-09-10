@@ -104,7 +104,7 @@
 
 @const-start
 
-(def settings-version 303i32)
+(def settings-version 304i32)
 (def button-safety-speed (/ 0.1 3.6)) ; disabling button above 0.1 km/h (due to safety reasons)
 (def min-adc-throttle 0.1) ; throttle and brake needed to reach the secret modes
 (def min-adc-brake 0.1)

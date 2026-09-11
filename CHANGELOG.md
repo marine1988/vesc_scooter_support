@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.4 — released
+The tab that holds the cruise settings is called **Cruise**, not "Assist", so it reads as what it
+is next to zuna's four tabs (General, Modes, Secret, Alarm). Five tabs before, five tabs now, and
+no setting changed or moved.
+
 ## 2.3 — released
 Cruise control:
 - One long beep when it takes over, two short when it lets go, played from the control frame so no

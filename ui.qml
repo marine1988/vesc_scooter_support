@@ -377,7 +377,7 @@ Item {
                 width: Math.max(tabBar.buttonWidth, tabBar.width / tabBar.buttons)
             }
             TabButton {
-                text: "Assist"
+                text: "Cruise"
                 width: Math.max(tabBar.buttonWidth, tabBar.width / tabBar.buttons)
             }
         }

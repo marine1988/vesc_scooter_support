@@ -6,9 +6,10 @@ The cruise beeps can be switched off, and the tab that holds the cruise settings
 
 - **Beeps** checkbox in the Cruise tab, on by default. It gates `cruise-beep`: with it off no tone is
   ever scheduled, so the scheduler has nothing to play.
-- New EEPROM field `cruise-beeps` at offset 49, `settings-version` 306 → 307. Offsets 0-48 are
-  untouched, so what is on the scooter survives the update; only the new field comes back at its
-  default.
+- New EEPROM field `cruise-beeps` at offset 49, `settings-version` 306 → 307. Nothing moved: offsets
+  0-48 still hold what they held. As with every version bump, the first start after the update runs
+  `restore-defaults` once, so the dash settings (modes, secret mode, alarm, profiles) go back to what
+  the package ships with — set them again in the UI.
 - The cruise settings line ends with the switch now (`cruise <enabled> <hold> <deadband> <min> <max>
   <modes> <beeps>`, 8 tokens), checked by running the real `send-settings` against the field indexes
   the UI reads.

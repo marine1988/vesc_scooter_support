@@ -182,6 +182,7 @@ Item {
             + " " + readSpeed(cruiseMinSpeed)
             + " " + readSpeed(cruiseMaxSpeed)
             + " " + cruiseModeMask()
+            + " " + boolAtom(cruiseBeeps)
             + ")")
 
         // A model change restarts lisp, which loads and applies everything on its own
@@ -304,6 +305,7 @@ Item {
             cruiseModeEco.checked = (mask & 2) !== 0
             cruiseModeDrive.checked = (mask & 1) !== 0
             cruiseModeSport.checked = (mask & 4) !== 0
+            cruiseBeeps.checked = parseBoolToken(parts[7])
         }
 
         loadedLines |= 1 << index
@@ -650,6 +652,12 @@ Item {
                                 CheckBox { id: cruiseModeEco; text: "Eco" }
                                 CheckBox { id: cruiseModeDrive; text: "Drive" }
                                 CheckBox { id: cruiseModeSport; text: "Sport" }
+                            }
+
+                            CheckBox {
+                                id: cruiseBeeps
+                                Layout.columnSpan: 2
+                                text: "Beeps"
                             }
                         }
                     }

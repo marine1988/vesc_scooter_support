@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.5 — released
+The cruise beeps can be switched off, and the tab that holds the cruise settings is called
+**Cruise** (it was "Assist" in 2.4).
+
+- **Beeps** checkbox in the Cruise tab, on by default. It gates `cruise-beep`: with it off no tone is
+  ever scheduled, so the scheduler has nothing to play.
+- New EEPROM field `cruise-beeps` at offset 49, `settings-version` 306 → 307. Offsets 0-48 are
+  untouched, so what is on the scooter survives the update; only the new field comes back at its
+  default.
+- The cruise settings line ends with the switch now (`cruise <enabled> <hold> <deadband> <min> <max>
+  <modes> <beeps>`, 8 tokens), checked by running the real `send-settings` against the field indexes
+  the UI reads.
+- Everything else on the dash is unchanged: zuna's four tabs, the frame 0x65 protocol, the modes,
+  the alarm, the secret mode, the idle display.
+
 ## 2.4 — released
 The tab that holds the cruise settings is called **Cruise**, not "Assist", so it reads as what it
 is next to zuna's four tabs (General, Modes, Secret, Alarm). Five tabs before, five tabs now, and

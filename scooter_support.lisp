@@ -19,6 +19,7 @@
 (def cruise-min-speed 0.0)
 (def cruise-max-speed 0.0)
 (def cruise-modes 3) ; bit 1 drive, 2 eco, 4 sport
+(def cruise-beeps true)
 
 ; Cruise control beeps
 (def ticks-per-ms 10) ; systime runs at 10 kHz
@@ -116,7 +117,7 @@
 
 @const-start
 
-(def settings-version 306i32)
+(def settings-version 307i32)
 (def button-safety-speed (/ 0.1 3.6)) ; disabling button above 0.1 km/h (due to safety reasons)
 (def min-adc-throttle 0.1) ; throttle and brake needed to reach the secret modes
 (def min-adc-brake 0.1)
@@ -174,6 +175,7 @@
     ; Legal lock (offsets 47-48, do not renumber 0-46)
     (legal-speed-kmh       . (47 f))
     (legal-watt            . (48 f))
+    (cruise-beeps          . (49 b))
 ))
 
 (defun read-setting (name)
@@ -257,6 +259,7 @@
         (write-setting 'cruise-min-speed-kmh 5.0)
         (write-setting 'cruise-max-speed-kmh 25.0)
         (write-setting 'cruise-modes 3)
+        (write-setting 'cruise-beeps true)
     }
 )
 
@@ -311,6 +314,7 @@
         (set 'cruise-min-speed (/ (read-setting 'cruise-min-speed-kmh) 3.6))
         (set 'cruise-max-speed (/ (read-setting 'cruise-max-speed-kmh) 3.6))
         (set 'cruise-modes (read-setting 'cruise-modes))
+        (set 'cruise-beeps (read-setting 'cruise-beeps))
 
         (var m (read-setting 'model))
         (if (not (valid-model m)) {
@@ -410,7 +414,7 @@
 )
 
 ; Cruise control settings
-(defun save-cruise-settings (enabled hold-sec deadband min-speed-kmh max-speed-kmh modes)
+(defun save-cruise-settings (enabled hold-sec deadband min-speed-kmh max-speed-kmh modes beeps)
     {
         (write-setting 'cruise-enabled enabled)
         (write-setting 'cruise-hold-sec hold-sec)
@@ -418,6 +422,7 @@
         (write-setting 'cruise-min-speed-kmh min-speed-kmh)
         (write-setting 'cruise-max-speed-kmh max-speed-kmh)
         (write-setting 'cruise-modes modes)
+        (write-setting 'cruise-beeps beeps)
     }
 )
 
@@ -510,7 +515,8 @@
             (str-from-n (read-setting 'cruise-deadband) "%.2f ")
             (str-from-n (read-setting 'cruise-min-speed-kmh) "%.1f ")
             (str-from-n (read-setting 'cruise-max-speed-kmh) "%.1f ")
-            (str-from-n (read-setting 'cruise-modes) "%d")
+            (str-from-n (read-setting 'cruise-modes) "%d ")
+            (if (read-setting 'cruise-beeps) "true" "false")
         ))
     }
 )
@@ -923,9 +929,13 @@
 ; One beep of on-ms, repeated count times, without ever holding up a frame
 (defun cruise-beep(on-ms count)
     {
-        (set 'cruise-tone-on (* on-ms ticks-per-ms))
-        (set 'cruise-tone-left count)
-        (set 'cruise-tone-next (systime))
+        (if cruise-beeps
+            {
+                (set 'cruise-tone-on (* on-ms ticks-per-ms))
+                (set 'cruise-tone-left count)
+                (set 'cruise-tone-next (systime))
+            }
+        )
     }
 )
 

@@ -56,7 +56,7 @@ After changing the model, save in the UI - the script restarts on its own with t
 - [x] Lock mode with alarm, beeping and braking (Press twice while holding brake)
 - [x] Shutdown support (Long press to turn off)
 - [x] Motor start speed
-- [x] Cruise control (hold the throttle to latch, one long beep on, two short off)
+- [x] Cruise control (hold the throttle to latch, one long beep on, two short off — the beeps can be switched off in the Cruise tab)
 - [x] Idle display (battery, motor and controller temperature, voltage, trip or top speed)
 - [x] Temperature notification icon (configurable threshold)
 - [x] mph/km display toggle
